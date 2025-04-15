@@ -1,173 +1,187 @@
-from typing import List, Dict, Tuple, Optional
-from MoveSorter import MoveSorter
+from typing import List, Optional
 from Position import Position
+from MoveSorter import MoveSorter
 from TranspositionTable import TranspositionTable
 
 class Solver:
+    """
+    Connect 4 solver using Negamax algorithm with alpha-beta pruning
+    and various optimization techniques.
+    """
     INVALID_MOVE = -1000
-    WIN_SCORE = 1000000
-    
+
     def __init__(self):
-        self.transposition_table = {}
-        self.column_order = [3, 2, 4, 1, 5, 0, 6]  # Center-first ordering
-    
-    def analyze(self, position: Position) -> List[int]:
-        scores = [self.INVALID_MOVE] * Position.WIDTH
+        """Initialize the solver"""
+        self.node_count = 0
+        self.trans_table = {}  # Use an empty dict as transposition table
         
-        # Check each column for valid moves
-        for col in range(Position.WIDTH):
-            if not position.can_play(col):
-                continue
-                
-            # Check if this is a winning move
-            if position.is_winning_move(col):
-                scores[col] = self.WIN_SCORE
-                return scores  # Immediate win takes priority
+        # Initialize column order for exploration (center columns first)
+        self.column_order = []
+        for i in range(Position.WIDTH):
+            self.column_order.append(Position.WIDTH // 2 + (1 - 2 * (i % 2)) * (i + 1) // 2)
+        # For WIDTH=7: column_order = [3, 4, 2, 5, 1, 6, 0]
+
+    def load_book(self, book_file: str) -> None:
+        """Load opening book from file"""
+        # Implementation would depend on the book file format
+        try:
+            with open(book_file, 'r') as f:
+                # Simple implementation - actual parsing would depend on format
+                for line in f:
+                    if line.strip():
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            key = int(parts[0])
+                            value = int(parts[1])
+                            self.opening_book[key] = value
+        except Exception as e:
+            print(f"Error loading opening book: {e}")
+
+    def negamax(self, position: Position, alpha: int, beta: int) -> int:
+
+        assert alpha < beta
+        assert not position.can_win_next()
         
-        # Check if we need to block opponent's win
-        for col in range(Position.WIDTH):
-            if not position.can_play(col):
-                continue
-                
-            # Create opponent's position by flipping current player
-            opponent_pos = Position(position.current_position ^ position.mask, position.mask, position.moves)
-            if opponent_pos.is_winning_move(col):
-                scores[col] = self.WIN_SCORE - 1  # Very high priority, but less than winning
+        self.node_count += 1  # Increment counter of explored nodes
         
-        # For all valid columns, evaluate using minimax
-        for col in range(Position.WIDTH):
-            if not position.can_play(col):
-                continue
-                
-            if scores[col] == self.INVALID_MOVE:  # If not already scored (win or block)
-                # Make the move
-                new_pos = Position(position.current_position, position.mask, position.moves)
-                new_pos.play_col(col)
-                
-                # Run minimax with reasonable depth
-                scores[col] = -self.minimax(new_pos, 4, -float('inf'), float('inf'))
-                print(f"Col {col+1}: score {scores[col]}")
+        # Check if there are valid moves
+        possible = position.possible_non_losing_moves()
+        if possible == 0:  # No possible non-losing moves, opponent wins next move
+            return -((Position.WIDTH * Position.HEIGHT - position.nb_moves()) // 2)
         
-        return scores
-    
-    def minimax(self, position: Position, depth: int, alpha: int, beta: int) -> int:
-        """Negamax implementation of minimax with alpha-beta pruning"""
-        if position.moves == Position.WIDTH * Position.HEIGHT:
-            return 0  # Draw
-        
-        # Check for immediate win
-        for col in range(Position.WIDTH):
-            if position.can_play(col) and position.is_winning_move(col):
-                return (Position.WIDTH * Position.HEIGHT + 1 - position.moves) // 2
-        
-        if depth == 0:
-            return self.evaluate(position)
-        
-        max_score = -float('inf')
-        
-        # Try each column
-        for col in self.column_order:
-            if position.can_play(col):
-                # Make the move
-                new_pos = Position(position.current_position, position.mask, position.moves)
-                new_pos.play_col(col)
-                
-                # Recursive evaluation with negation (negamax)
-                score = -self.minimax(new_pos, depth - 1, -beta, -alpha)
-                
-                max_score = max(max_score, score)
-                alpha = max(alpha, score)
-                
-                if alpha >= beta:
-                    break  # Pruning
-        
-        return max_score
-    
-    def evaluate(self, position: Position) -> int:
-        """Evaluate the position from current player's perspective"""
-        score = 0
-        
-        # Check all possible winning lines
-        for row in range(Position.HEIGHT):
-            for col in range(Position.WIDTH):
-                # Check horizontal lines
-                if col <= Position.WIDTH - 4:
-                    score += self.evaluate_line(position, col, row, 1, 0)
-                
-                # Check vertical lines
-                if row <= Position.HEIGHT - 4:
-                    score += self.evaluate_line(position, col, row, 0, 1)
-                
-                # Check diagonal lines (/)
-                if col <= Position.WIDTH - 4 and row <= Position.HEIGHT - 4:
-                    score += self.evaluate_line(position, col, row, 1, 1)
-                
-                # Check diagonal lines (\)
-                if col <= Position.WIDTH - 4 and row >= 3:
-                    score += self.evaluate_line(position, col, row, 1, -1)
-        
-        # Bonus for center control
-        for row in range(Position.HEIGHT):
-            if position.get_cell(3, row) == 'X':  # Middle column
-                score += 3
-        
-        return score
-    
-    def evaluate_line(self, position: Position, col: int, row: int, delta_col: int, delta_row: int) -> int:
-        """Evaluate a line of 4 cells"""
-        # Get the 4 cells in this line
-        cells = []
-        for i in range(4):
-            new_col = col + i * delta_col
-            new_row = row + i * delta_row
-            
-            if 0 <= new_col < Position.WIDTH and 0 <= new_row < Position.HEIGHT:
-                cells.append(position.get_cell(new_col, new_row))
-            else:
-                return 0  # Out of bounds
-        
-        # Count pieces
-        count_x = cells.count('X')
-        count_o = cells.count('O')
-        count_empty = cells.count('.')
-        
-        # Cannot have both X and O in a winning line
-        if count_x > 0 and count_o > 0:
+        # Check for draw game
+        if position.nb_moves() >= Position.WIDTH * Position.HEIGHT - 2:
             return 0
         
-        # Current player's perspective
-        current_player = 'X' if position.moves % 2 == 1 else 'O'
-        opponent = 'O' if current_player == 'X' else 'X'
+        # Lower bound of score as opponent cannot win next move
+        min_score = -((Position.WIDTH * Position.HEIGHT - 2 - position.nb_moves()) // 2)
+        if alpha < min_score:
+            alpha = min_score
+            if alpha >= beta:
+                return alpha  # Prune if window is empty
         
-        # Current player's pieces
-        if count_x > 0 and current_player == 'X':
-            if count_x == 3 and count_empty == 1:
-                return 50  # Three in a row with an empty spot
-            elif count_x == 2 and count_empty == 2:
-                return 10  # Two in a row with two empty spots
-            elif count_x == 1 and count_empty == 3:
-                return 1   # One piece with three empty spots
+        # Upper bound of our score as we cannot win immediately
+        max_score = (Position.WIDTH * Position.HEIGHT - 1 - position.nb_moves()) // 2
+        if beta > max_score:
+            beta = max_score
+            if alpha >= beta:
+                return beta  # Prune if window is empty
         
-        # Opponent's pieces - negative scores
-        if count_o > 0 and current_player == 'X':
-            if count_o == 3 and count_empty == 1:
-                return -100  # Block opponent's three in a row (high priority)
-            elif count_o == 2 and count_empty == 2:
-                return -10   # Block potential development
+        # Check transposition table
+        key = position.key()
+        val = self.trans_table.get(key)
+        if val is not None:
+            if val > Position.MAX_SCORE - Position.MIN_SCORE + 1:  # We have a lower bound
+                min_val = val + 2 * Position.MIN_SCORE - Position.MAX_SCORE - 2
+                if alpha < min_val:
+                    alpha = min_val
+                    if alpha >= beta:
+                        return alpha  # Prune if window is empty
+            else:  # We have an upper bound
+                max_val = val + Position.MIN_SCORE - 1
+                if beta > max_val:
+                    beta = max_val
+                    if alpha >= beta:
+                        return beta  # Prune if window is empty
         
-        # Same logic for when current player is O
-        if count_o > 0 and current_player == 'O':
-            if count_o == 3 and count_empty == 1:
-                return 50
-            elif count_o == 2 and count_empty == 2:
-                return 10
-            elif count_o == 1 and count_empty == 3:
-                return 1
+        # Check opening book (if implemented)
+        # book_val = self.book.get(position)
+        # if book_val is not None:
+        #     return book_val + Position.MIN_SCORE - 1
         
-        if count_x > 0 and current_player == 'O':
-            if count_x == 3 and count_empty == 1:
-                return -100
-            elif count_x == 2 and count_empty == 2:
-                return -10
+        # Sort moves
+        moves = []
+        for i in range(Position.WIDTH - 1, -1, -1):
+            col = self.column_order[i]
+            move = possible & Position.column_mask(col)
+            if move:
+                # Add (move, score) pair to moves list
+                moves.append((move, position.move_score(move)))
         
-        return 0
+        # Sort moves by score
+        moves.sort(key=lambda x: x[1], reverse=True)
+        
+        for move, _ in moves:
+            new_pos = Position(position)
+            new_pos.play(move)
+            score = -self.negamax(new_pos, -beta, -alpha)
+            
+            if score >= beta:
+                # Save lower bound
+                self.trans_table[key] = score + Position.MAX_SCORE - 2 * Position.MIN_SCORE + 2
+                return score  # Prune
+            
+            if score > alpha:
+                alpha = score  # Reduce window for next exploration
+        
+        # Save upper bound
+        self.trans_table[key] = alpha - Position.MIN_SCORE + 1
+        return alpha
+
+    def solve(self, position: Position, weak: bool = False) -> int:
+        # Check for immediate win
+        if position.can_win_next():
+            return (Position.WIDTH * Position.HEIGHT + 1 - position.nb_moves()) // 2
+        
+        # Initialize min-max bounds
+        min_score = -(Position.WIDTH * Position.HEIGHT - position.nb_moves()) // 2
+        max_score = (Position.WIDTH * Position.HEIGHT + 1 - position.nb_moves()) // 2
+        
+        if weak:
+            min_score = -1
+            max_score = 1
+        
+        # Iteratively narrow the min-max exploration window
+        while min_score < max_score:
+            med = min_score + (max_score - min_score) // 2
+            
+            # Adjust median for better performance
+            if med <= 0 and min_score // 2 < med:
+                med = min_score // 2
+            elif med >= 0 and max_score // 2 > med:
+                med = max_score // 2
+                
+            # Use a null depth window to determine if score is greater or smaller than med
+            r = self.negamax(position, med, med + 1)
+            
+            if r <= med:
+                max_score = r
+            else:
+                min_score = r
+                
+        return min_score
+
+    def analyze(self, position: Position, weak: bool = False) -> List[int]:
+        """
+        Analyze all possible moves from a position.
+        
+        Args:
+            position: Position to analyze
+            weak: If true, only distinguish between win/draw/loss
+            
+        Returns:
+            List of scores for each column, INVALID_MOVE for invalid moves
+        """
+        scores = [self.INVALID_MOVE] * Position.WIDTH
+        
+        # Check each column
+        for col in range(Position.WIDTH):
+            if position.can_play(col):
+                if position.is_winning_move(col):
+                    scores[col] = (Position.WIDTH * Position.HEIGHT + 1 - position.nb_moves()) // 2
+                else:
+                    # Create new position with this move
+                    new_pos = Position(position)
+                    new_pos.play_col(col)
+                    scores[col] = -self.solve(new_pos, weak)
+        
+        return scores
+
+    def reset(self) -> None:
+        """Reset the solver state"""
+        self.node_count = 0
+        self.trans_table = {}
+
+    def get_node_count(self) -> int:
+        """Get number of nodes explored in the last search"""
+        return self.node_count

@@ -1,5 +1,10 @@
+from fastapi import FastAPI, HTTPException
+import random
+import uvicorn
+from pydantic import BaseModel
+from typing import List, Optional
+from fastapi.middleware.cors import CORSMiddleware
 import sys
-import struct
 from typing import List, Dict, Tuple, Optional
 from functools import lru_cache
 
@@ -9,10 +14,17 @@ class Position:
     MIN_SCORE = -(WIDTH * HEIGHT) // 2 + 3
     MAX_SCORE = (WIDTH * HEIGHT + 1) // 2 - 3
 
-    def __init__(self, current_position: int = 0, mask: int = 0, moves: int = 0):
-        self.current_position = current_position
-        self.mask = mask
-        self.moves = moves
+    def __init__(self, position=None, current_position: int = 0, mask: int = 0, moves: int = 0):
+        if position is not None:
+            # Copy constructor
+            self.current_position = position.current_position
+            self.mask = position.mask
+            self.moves = position.moves
+        else:
+            # Regular constructor
+            self.current_position = current_position
+            self.mask = mask
+            self.moves = moves
 
     @staticmethod
     def bottom_mask_col(col: int) -> int:
@@ -35,7 +47,11 @@ class Position:
 
     @staticmethod
     def board_mask() -> int:
-        return Position.bottom_mask() * ((1 << Position.HEIGHT) - 1)
+        # Pre-calculate this value to avoid recursion
+        bottom = 0
+        for col in range(Position.WIDTH):
+            bottom |= (1 << (col * (Position.HEIGHT + 1)))
+        return bottom * ((1 << Position.HEIGHT) - 1)
 
     def can_play(self, col: int) -> bool:
         return (self.mask & Position.top_mask_col(col)) == 0
@@ -55,7 +71,6 @@ class Position:
         self.play((self.mask + Position.bottom_mask_col(col)) & Position.column_mask(col))
 
     def play_sequence(self, sequence: str):
-        """Chỉ chấp nhận chuỗi số từ 1-7, bỏ qua mọi ký tự khác"""
         valid_moves = 0
         for char in sequence:
             if char.isdigit() and '1' <= char <= '7':
@@ -69,18 +84,46 @@ class Position:
         if not self.can_play(col):
             return False
         
-        # Tạo bản sao tạm để kiểm tra
-        temp_pos = self.current_position | ((self.mask + self.bottom_mask_col(col)) & self.column_mask(col))
+        temp_pos = self.current_position | ((self.mask + Position.bottom_mask_col(col)) & Position.column_mask(col))
         return self.check_win(temp_pos)
 
     def get_current_pieces(self):
         return self.current_position if self.moves % 2 == 0 else self.current_position ^ self.mask
 
-    def can_win_next(self) -> bool:
-        return self.winning_position() & self.possible()
-
     def possible(self) -> int:
-        return (self.mask + Position.bottom_mask()) & Position.board_mask()
+        # Direct calculation to avoid recursion
+        bottom_mask = 0 
+        for col in range(Position.WIDTH):
+            bottom_mask |= (1 << (col * (Position.HEIGHT + 1)))
+        
+        board_mask = bottom_mask * ((1 << Position.HEIGHT) - 1)
+        return (self.mask + bottom_mask) & board_mask
+
+    def can_win_next(self) -> bool:
+        # Calculate directly without calling other methods to avoid recursion
+        winning_pos = self.compute_winning_position(self.current_position, self.mask)
+        
+        # Calculate possible positions directly
+        bottom_mask = 0
+        for col in range(Position.WIDTH):
+            bottom_mask |= (1 << (col * (Position.HEIGHT + 1)))
+        board_mask = bottom_mask * ((1 << Position.HEIGHT) - 1)
+        
+        possible_pos = (self.mask + bottom_mask) & board_mask
+        
+        return bool(winning_pos & possible_pos)
+
+    def _bottom_mask_direct(self) -> int:
+        # Direct calculation to avoid recursion
+        mask = 0
+        for col in range(Position.WIDTH):
+            mask |= (1 << (col * (Position.HEIGHT + 1)))
+        return mask
+
+    def _board_mask_direct(self) -> int:
+        # Direct calculation to avoid recursion
+        bottom = self._bottom_mask_direct()
+        return bottom * ((1 << Position.HEIGHT) - 1)
 
     def winning_position(self) -> int:
         return self.compute_winning_position(self.current_position, self.mask)
@@ -117,33 +160,103 @@ class Position:
         r |= p & (position << (Position.HEIGHT + 2))
         r |= p & (position >> 3 * (Position.HEIGHT + 2))
 
-        return r & (Position.board_mask() ^ mask)
+        # Direct calculation of board_mask to avoid recursion
+        bottom = 0
+        for col in range(Position.WIDTH):
+            bottom |= (1 << (col * (Position.HEIGHT + 1)))
+        board_mask = bottom * ((1 << Position.HEIGHT) - 1)
+        
+        return r & (board_mask ^ mask)
 
+    def move_score(self, move: int) -> int:
+        """
+        Calculate a simple heuristic score for a move without causing recursion.
+        
+        Args:
+            move: The move to evaluate (as a bitmask)
+            
+        Returns:
+            A score value (higher is better)
+        """
+        # Count center-proximity as a basic heuristic
+        col = 0
+        temp_move = move
+        while temp_move > 0:
+            temp_move >>= (Position.HEIGHT + 1)
+            col += 1
+        
+        # Prefer center columns (simple scoring)
+        center_distance = abs(col - 1 - Position.WIDTH // 2)
+        return Position.WIDTH - center_distance
+
+    def copy(self):
+        p = Position()
+        p.current_position = self.current_position
+        p.mask = self.mask
+        p.moves = self.moves
+        return p
+    
     def possible_non_losing_moves(self) -> int:
-        assert not self.can_win_next()
-        possible_mask = self.possible()
-        opponent_win = self.opponent_winning_position()
+        # Remove the assertion that's causing the infinite recursion
+        # assert not self.can_win_next()
+        
+        # Calculate possible directly
+        bottom_mask = 0
+        for col in range(Position.WIDTH):
+            bottom_mask |= (1 << (col * (Position.HEIGHT + 1)))
+        board_mask = bottom_mask * ((1 << Position.HEIGHT) - 1)
+        possible_mask = (self.mask + bottom_mask) & board_mask
+        
+        # Calculate opponent winning positions directly
+        opponent_position = self.current_position ^ self.mask
+        opponent_win = self.compute_winning_position(opponent_position, self.mask)
+        
         forced_moves = possible_mask & opponent_win
         
         if forced_moves:
-            if forced_moves & (forced_moves - 1):
-                return 0
-            possible_mask = forced_moves
+            if forced_moves & (forced_moves - 1):  # Check if more than one bit is set
+                return 0  # Multiple forced moves means we lose
+            possible_mask = forced_moves  # We're forced to play here
         
-        return possible_mask & ~(opponent_win >> 1)
+        return possible_mask & ~(opponent_win >> 1)  # Avoid letting opponent win after our move
 
-    def move_score(self, move: int) -> int:
-        score = bin(self.compute_winning_position(self.current_position | move, self.mask)).count('1')
+    def can_win_next(self) -> bool:
+        # Calculate directly without calling methods that might cause recursion
+        player_position = self.current_position
         
-        # Ưu tiên đánh cột giữa
-        col = (move.bit_length() - 1) // (Position.HEIGHT + 1)
-        score += (3 - abs(3 - col)) * 2  # Đi giữa (cột 3) +6, cột 2 và 4 +4, xa hơn ít điểm hơn
+        # Direct calculation of winning positions
+        winning_positions = self.compute_winning_position(player_position, self.mask)
+        
+        # Direct calculation of possible moves
+        bottom_mask = 0
+        for col in range(Position.WIDTH):
+            bottom_mask |= (1 << (col * (Position.HEIGHT + 1)))
+        board_mask = bottom_mask * ((1 << Position.HEIGHT) - 1)
+        possible_positions = (self.mask + bottom_mask) & board_mask
+        
+        # Check if there are any winning positions among possible moves
+        return bool(winning_positions & possible_positions)
 
-        # Ưu tiên tạo thế ép (Fork)
-        if self.can_win_next():
-            score += 100
+    def check_diagonals(self, position: int) -> int:
+        # Diagonal 1 (rising)
+        p_d1 = (position << Position.HEIGHT) & (position << 2 * Position.HEIGHT)
+        d1 = p_d1 & (position << 3 * Position.HEIGHT)
+        d2 = p_d1 & (position >> Position.HEIGHT)
         
-        return score
+        p_d1b = (position >> Position.HEIGHT) & (position >> 2 * Position.HEIGHT)
+        d3 = p_d1b & (position << Position.HEIGHT)
+        d4 = p_d1b & (position >> 3 * Position.HEIGHT)
+        
+        # Diagonal 2 (falling)
+        p_d2 = (position << (Position.HEIGHT + 2)) & (position << 2 * (Position.HEIGHT + 2))
+        d5 = p_d2 & (position << 3 * (Position.HEIGHT + 2))
+        d6 = p_d2 & (position >> (Position.HEIGHT + 2))
+        
+        p_d2b = (position >> (Position.HEIGHT + 2)) & (position >> 2 * (Position.HEIGHT + 2))
+        d7 = p_d2b & (position << (Position.HEIGHT + 2))
+        d8 = p_d2b & (position >> 3 * (Position.HEIGHT + 2))
+        
+        return d1 | d2 | d3 | d4 | d5 | d6 | d7 | d8
 
     def check_win(self, position: int) -> bool:
         # Kiểm tra 4 hướng
@@ -160,7 +273,8 @@ class Position:
         return False
     
     def key(self) -> int:
-        return self.current_position + self.mask
+        return hash((self.current_position, self.mask))
+
 
     def key3(self) -> int:
         key_forward = 0
@@ -184,6 +298,10 @@ class Position:
             pos <<= 1
         key *= 3
         return key
+    
+    def nb_moves(self) -> int:
+        """Return the number of moves played so far"""
+        return self.moves
 
     def __str__(self) -> str:
         board = []
