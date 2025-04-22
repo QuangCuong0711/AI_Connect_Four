@@ -49,7 +49,7 @@ def test_position(sequence_str, expected_score):
 def profile_negamax():
     solver = Solver()  # or whatever your solver class is called
     sequence_str = "6517643167442672742"
-    sequence = parse_seq3uence(sequence_str)
+    sequence = parse_sequence(sequence_str)
     position = setup_position_from_sequence(sequence)
     alpha = -1000
     beta = 1000
