@@ -73,6 +73,7 @@ class Connect4UI:
     def setup_game(self):
         self.position = Position.Position()
         self.solver = Solver.Solver()
+        self.opening_book = OpeningBook.OpeningBook()
         self.game_over = False
         self.current_player = 1  # 1: Human/X, 2: Human/O hoặc AI
 
@@ -139,8 +140,14 @@ class Connect4UI:
             self.game_over = True
             self.draw_board()
             if self.game_mode == "pvp":
+                sequence = self.position.get_played_sequence()
+                self.solver.add_to_book(sequence, self.current_player)
+                print("Added to battles.txt!")
                 self.show_message("Player " + str(self.current_player) + " win!")
             else:
+                sequence = self.position.get_played_sequence()
+                self.solver.add_to_book(sequence, self.current_player)
+                print("Added to battles.txt!")
                 self.show_message("Player win!")
         elif self.position.nb_moves() == Position.Position.WIDTH * Position.Position.HEIGHT:
             self.game_over = True
@@ -157,48 +164,62 @@ class Connect4UI:
         best_col = None
         best_score = -float('inf')
         
-        for col in range(Position.Position.WIDTH):
-            if self.position.can_play(col) and self.position.is_winning_move(col):
-                best_col = col
-                self.position.playCol(best_col)
-                self.game_over = True
-                self.draw_board()
-                self.show_message("AI win!")
-                break
+        # Check opening book
+        book_move = self.opening_book.find_next_move(self.position, 2)
+        if book_move is not None:
+            best_col = book_move
+        else:
+            for col in range(Position.Position.WIDTH):
+                if self.position.can_play(col) and self.position.is_winning_move(col):
+                    best_col = col
+                    self.position.playCol(best_col)
+                    self.game_over = True
+                    self.draw_board()
+                    self.show_message("AI win!")
+                    sequence = self.position.get_played_sequence()
+                    self.solver.add_to_book(sequence, self.current_player)
+                    print("Added to battles.txt!")
+                    break
+            # Evaluate each possible move
+            for x in range(Position.Position.WIDTH):
+                col = self.solver.column_order[x]
+                if self.position.can_play(col):
+                    # Create a new position with this move
+                    P2 = Position.Position(self.position)
+                    P2.playCol(col)
+                    
+                    # Check if opponent has a winning move after our move
+                    opponent_can_win = False
+                    for y in range(Position.Position.WIDTH):
+                        if P2.can_play(y) and P2.is_winning_move(y):
+                            opponent_can_win = True
+                            break
+                    
+                    # Evaluate this move if it doesn't lead to opponent's immediate win
+                    if not opponent_can_win:
+                        score = -self.solver.solve(P2)
+                        if score > best_score or best_col is None:
+                            best_col = col
+                            best_score = score
         
-        for x in range(Position.Position.WIDTH):
-            col = self.solver.column_order[x]
-            if self.position.can_play(col):
-                P2 = Position.Position(self.position)
-                P2.playCol(col)
-                
-                opponent_can_win = False
-                for y in range(Position.Position.WIDTH):
-                    if P2.can_play(y) and P2.is_winning_move(y):
-                        opponent_can_win = True
-                        break
-                
-                if not opponent_can_win:
-                    score = -self.solver.solve(P2)
-                    if score > best_score or best_col is None:
-                        best_col = col
-                        best_score = score
-        
+        # Fallback: If no good move found, pick the first available column
         if best_col is None:
             for col in range(Position.Position.WIDTH):
                 if self.position.can_play(col):
                     best_col = col
                     break
         
+        # Play the selected move
         self.position.playCol(best_col)
         self.position.print_board()
-
+        
+        # Check for draw
         if self.position.nb_moves() == Position.Position.WIDTH * Position.Position.HEIGHT:
             self.game_over = True
             self.draw_board()
             self.show_message("Draw!")
-
-        self.current_player = 1  
+        
+        self.current_player = 1
     
     def show_message(self, text):
         pygame.draw.rect(self.screen, BLACK, (0, 0, WIDTH, SQUARESIZE))

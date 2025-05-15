@@ -8,22 +8,24 @@ def bottom(width, height):
 
 
 class Position:
-    WIDTH = 7  # width of the board5
-    HEIGHT = 6  # height of the board
+    WIDTH = 7 
+    HEIGHT = 6 
     MIN_SCORE = -(WIDTH*HEIGHT)//2 + 3
     MAX_SCORE = (WIDTH*HEIGHT+1)//2 - 3
-    bottom_mask = bottom(WIDTH, HEIGHT)  # bottom mask for the board
-    board_mask = bottom_mask * ((np.uint64(1) << HEIGHT)-1)  # board mask for the board
+    bottom_mask = bottom(WIDTH, HEIGHT)
+    board_mask = bottom_mask * ((np.uint64(1) << HEIGHT)-1) 
 
     def __init__(self, other=None):
         if other:
             self.current_position = np.uint64(other.current_position)
             self.mask = np.uint64(other.mask)
             self.moves = other.moves
+            self._played_sequence = list(other._played_sequence)  # Sao chép danh sách nước đi
         else:
             self.current_position = np.uint64(0)
             self.mask = np.uint64(0)
             self.moves = 0
+            self._played_sequence = []
 
     def play(self, move):
         self.current_position ^= self.mask
@@ -85,10 +87,13 @@ class Position:
         return self.popcount(self.compute_winning_position(self.current_position | move, self.mask))
 
     def can_play(self, col):
+        if col < 0 or col >= self.WIDTH:
+            return False
         return (self.mask & self.top_mask_col(col)) == 0
     
     def playCol(self, col):
-        return self.play((self.mask + self.bottom_mask_col(col)) & self.column_mask(col))
+        self._played_sequence.append(col)
+        self.play((self.mask + self.bottom_mask_col(col)) & self.column_mask(col))
     
     def is_winning_move(self, col):
         return self.winning_position() & self.possible() & self.column_mask(col) != 0
@@ -101,40 +106,17 @@ class Position:
 
     def possible(self):
         """Trả về danh sách các cột có thể chơi"""
-        return (self.mask +Position.bottom_mask) & Position.board_mask
+        return (self.mask + Position.bottom_mask) & Position.board_mask
 
     def get_played_sequence(self):
-        """Return the sequence of moves played so far as a string in 1-indexed format"""
-        # This is a new method to track the move history for opening book
-        sequence = ""
-        temp_position = Position()  # Create a clean position
-        
-        # Try to reconstruct the game by simulating moves
-        for col in range(self.WIDTH):
-            for row in range(self.HEIGHT):
-                bit_pos = col * (self.HEIGHT + 1) + row
-                
-                # Check if this position has a piece
-                if (self.mask >> bit_pos) & 1:
-                    # Figure out which move in the sequence this was
-                    test_pos = Position()
-                    found = False
-                    
-                    # Try each possible move sequence
-                    for test_col in range(self.WIDTH):
-                        test_mask = test_pos.mask | (1 << (test_col * (self.HEIGHT + 1) + 0))
-                        if test_mask == self.mask:
-                            sequence += str(test_col + 1)  # Convert to 1-indexed
-                            found = True
-                            break
-                    
-                    if found:
-                        temp_position.playCol(col)
-                    else:
-                        # If we can't reconstruct, return what we have
-                        return sequence
-        
-        return sequence
+        if isinstance(self._played_sequence, str):
+            return self._played_sequence
+        else:
+            return ''.join(str(col + 1) for col in self._played_sequence)
+    
+    def check_win(self, position):
+        """Kiểm tra xem position có phải là vị trí thắng không"""
+        return self.compute_winning_position(position, self.mask) != 0
         
     @staticmethod
     def popcount(x):
@@ -170,6 +152,7 @@ class Position:
         r |= p & (position >> 3*(Position.HEIGHT+2))
 
         return r & (Position.board_mask ^ mask)
+    
     @staticmethod
     def top_mask_col(col):
         return np.uint64(1) << (Position.HEIGHT - 1) << col * (Position.HEIGHT + 1)

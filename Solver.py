@@ -17,48 +17,9 @@ class Solver:
             return 0
         return int(np.log2(n/2) + 1)
     
-    def get_best_move(self, position):
-        """Get the best move for the current position"""
-        # First check if there's a move in the opening book
-        book_move = self.opening_book.find_next_move(position, 2 if position.nb_moves() % 2 == 0 else 1)
-        if book_move is not None:
-            return book_move
-            
-        # Otherwise use the solver
-        best_col = None
-        best_score = -float('inf')
-        
-        for x in range(Position.Position.WIDTH):
-            col = self.column_order[x]
-            if position.can_play(col):
-                # Check for an immediate win
-                if position.is_winning_move(col):
-                    return col
-                    
-                P2 = Position.Position(position)
-                P2.playCol(col)
-                
-                # Check if this move would allow opponent to win
-                opponent_can_win = False
-                for y in range(Position.Position.WIDTH):
-                    if P2.can_play(y) and P2.is_winning_move(y):
-                        opponent_can_win = True
-                        break
-                
-                if not opponent_can_win:
-                    score = -self.solve(P2)
-                    if score > best_score or best_col is None:
-                        best_col = col
-                        best_score = score
-        
-        # If we still don't have a move, pick the first valid one
-        if best_col is None:
-            for col in range(Position.Position.WIDTH):
-                if position.can_play(col):
-                    best_col = col
-                    break
-                    
-        return best_col
+    def add_to_book(self, sequence: str, winner: int) -> None:
+        """Add a sequence to the opening book"""
+        self.opening_book.add_sequence(sequence, winner)
 
     def evaluate(self, position):
         """
