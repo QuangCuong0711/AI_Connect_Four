@@ -103,6 +103,39 @@ class Position:
         """Trả về danh sách các cột có thể chơi"""
         return (self.mask +Position.bottom_mask) & Position.board_mask
 
+    def get_played_sequence(self):
+        """Return the sequence of moves played so far as a string in 1-indexed format"""
+        # This is a new method to track the move history for opening book
+        sequence = ""
+        temp_position = Position()  # Create a clean position
+        
+        # Try to reconstruct the game by simulating moves
+        for col in range(self.WIDTH):
+            for row in range(self.HEIGHT):
+                bit_pos = col * (self.HEIGHT + 1) + row
+                
+                # Check if this position has a piece
+                if (self.mask >> bit_pos) & 1:
+                    # Figure out which move in the sequence this was
+                    test_pos = Position()
+                    found = False
+                    
+                    # Try each possible move sequence
+                    for test_col in range(self.WIDTH):
+                        test_mask = test_pos.mask | (1 << (test_col * (self.HEIGHT + 1) + 0))
+                        if test_mask == self.mask:
+                            sequence += str(test_col + 1)  # Convert to 1-indexed
+                            found = True
+                            break
+                    
+                    if found:
+                        temp_position.playCol(col)
+                    else:
+                        # If we can't reconstruct, return what we have
+                        return sequence
+        
+        return sequence
+        
     @staticmethod
     def popcount(x):
         return bin(x).count('1')

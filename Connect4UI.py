@@ -2,6 +2,7 @@ import pygame
 import sys
 import Position
 import Solver
+import OpeningBook
 
 BLUE = (0, 0, 255)
 BLACK = (0, 0, 0)
@@ -24,7 +25,7 @@ class Button:
         self.hover_color = hover_color
         self.is_hovered = False
         self.text_hover = text_hover
-        self.font = pygame.font.Font('D:\AI_Connect_Four\Coiny.ttf', 36)
+        self.font = pygame.font.Font('D:\AI\AI_Connect_Four\Coiny.ttf', 36)
         
     def draw(self, surface):
         color = self.hover_color if self.is_hovered else self.color
@@ -50,13 +51,13 @@ class Connect4UI:
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Connect 4")
-        self.font = pygame.font.Font('D:\AI_Connect_Four\Coiny.ttf', 36)
+        self.font = pygame.font.Font('D:\AI\AI_Connect_Four\Coiny.ttf', 36)
         self.clock = pygame.time.Clock()
         self.game_mode = None  
         self.setup_menu()
 
     def setup_menu(self):
-        self.title_font = pygame.font.Font('D:\AI_Connect_Four\Coiny.ttf', 48)
+        self.title_font = pygame.font.Font('D:\AI\AI_Connect_Four\Coiny.ttf', 48)
         self.title_font.set_bold(True)
         
         button_width = 200

@@ -2,6 +2,7 @@ import numpy as np
 import Position
 import MoveSorter
 import TranspositionTable
+import OpeningBook
 
 class Solver:
     def __init__(self, max_depth = 10):
@@ -9,12 +10,56 @@ class Solver:
         self.max_depth = max_depth  # Độ sâu tối đa (None = không giới hạn)
         self.column_order = [3, 2, 4, 1, 5, 0, 6]
         self.transposition_table = TranspositionTable.TranspositionTable(Position.Position.WIDTH*(Position.Position.HEIGHT + 1), self.log2(Position.Position.MAX_SCORE - Position.Position.MIN_SCORE + 1) + 1,23)  
+        self.opening_book = OpeningBook.OpeningBook()
 
     def log2(self, n):
         if n <= 1:
             return 0
         return int(np.log2(n/2) + 1)
     
+    def get_best_move(self, position):
+        """Get the best move for the current position"""
+        # First check if there's a move in the opening book
+        book_move = self.opening_book.find_next_move(position, 2 if position.nb_moves() % 2 == 0 else 1)
+        if book_move is not None:
+            return book_move
+            
+        # Otherwise use the solver
+        best_col = None
+        best_score = -float('inf')
+        
+        for x in range(Position.Position.WIDTH):
+            col = self.column_order[x]
+            if position.can_play(col):
+                # Check for an immediate win
+                if position.is_winning_move(col):
+                    return col
+                    
+                P2 = Position.Position(position)
+                P2.playCol(col)
+                
+                # Check if this move would allow opponent to win
+                opponent_can_win = False
+                for y in range(Position.Position.WIDTH):
+                    if P2.can_play(y) and P2.is_winning_move(y):
+                        opponent_can_win = True
+                        break
+                
+                if not opponent_can_win:
+                    score = -self.solve(P2)
+                    if score > best_score or best_col is None:
+                        best_col = col
+                        best_score = score
+        
+        # If we still don't have a move, pick the first valid one
+        if best_col is None:
+            for col in range(Position.Position.WIDTH):
+                if position.can_play(col):
+                    best_col = col
+                    break
+                    
+        return best_col
+
     def evaluate(self, position):
         """
         Đánh giá vị trí hiện tại bằng cách đếm các hàng 4 tiềm năng
