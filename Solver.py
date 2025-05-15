@@ -4,7 +4,7 @@ import MoveSorter
 import TranspositionTable
 
 class Solver:
-    def __init__(self, max_depth = 4):
+    def __init__(self, max_depth = 10):
         self.node_count = 0
         self.max_depth = max_depth  # Độ sâu tối đa (None = không giới hạn)
         self.column_order = [3, 2, 4, 1, 5, 0, 6]
