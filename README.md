@@ -9,7 +9,7 @@ Dự án này là bài tập lớn của bộ môn Trí tuệ nhân tạo. Trong
 ## ▶️ Getting Started
 
 ### Dependencies
-- Python 3.10+
+- Python 3.12+
   + Nếu chưa có, có thể tải ở : [https://www.python.org/downloads/](https://www.python.org/downloads/)  
 - Pygame
   + Cài đặt pip nếu chưa có :
